@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>画家算法可视化演示 - 形象版</title>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --accent: #3498db;
+            --bg: #f4f7f6;
+        }
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { color: var(--primary); margin-bottom: 10px; }
+        .container {
+            display: flex;
+            gap: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        /* 左侧画布 */
+        .canvas-area {
+            position: relative;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            background-image: linear-gradient(#e0f2f1, #ffffff);
+        }
+        /* 右侧控制面板 */
+        .panel {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+        }
+        .info-box {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 5px solid var(--accent);
+        }
+        .step-list {
+            list-style: none;
+            padding: 0;
+        }
+        .step-item {
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            background: #eee;
+            display: flex;
+            justify-content: space-between;
+            transition: all 0.3s;
+        }
+        .active {
+            background: #3498db;
+            color: white;
+            transform: translateX(10px);
+        }
+        .completed {
+            background: #a5d6a7;
+            text-decoration: line-through;
+            opacity: 0.7;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: auto;
+        }
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+        .btn-next { background-color: var(--accent); color: white; }
+        .btn-reset { background-color: #e74c3c; color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .z-index-tag {
+            font-size: 0.8em;
+            background: rgba(0,0,0,0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>画家算法 (Painter's Algorithm) 可视化 - 形象版</h1>
+    
+    <div class="container">
+        <div class="canvas-area">
+            <canvas id="mainCanvas" width="500" height="400"></canvas>
+            <div id="statusLabel" style="position:absolute; top:10px; left:10px; font-weight:bold; color:var(--primary);">
+                准备就绪
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="info-box">
+                <strong>算法原理：</strong><br>
+                1. 测量每个物体到观察者的距离(Z值)。<br>
+                2. 按 Z 值由大到小（由远到近）排序。<br>
+                3. 依次绘制，近处物体覆盖远处物体。
+            </div>
+
+            <div id="stepContainer">
+                <strong>绘制队列 (由远到近)：</strong>
+                <ul class="step-list" id="polygonList">
+                    </ul>
+            </div>
+
+            <div class="controls">
+                <button class="btn-reset" onclick="resetDemo()">重置</button>
+                <button class="btn-next" id="nextBtn" onclick="nextStep()">下一步</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        const polygonListEl = document.getElementById('polygonList');
+        const nextBtn = document.getElementById('nextBtn');
+        const statusLabel = document.getElementById('statusLabel');
+
+        // 定义更形象的物体
+        const sceneObjects = [
+            {
+                id: 1,
+                name: '远山群 (背景)',
+                z: 300,
+                draw: function(ctx) {
+                    // 主山体 (深蓝)
+                    drawPolygonParts(ctx, '#1565C0', 'white', 2, [
+                        [[30, 360], [130, 200], [180, 250], [230, 150], [280, 280], [330, 180], [380, 320], [420, 360]]
+                    ]);
+                    // 积雪 (白)
+                    drawPolygonParts(ctx, '#FFFFFF', '#FFFFFF', 0, [
+                        [[200, 190], [230, 150], [260, 210], [230, 230]], // 主峰
+                        [[310, 220], [330, 180], [350, 230], [330, 250]]  // 次峰
+                    ]);
+                }
+            },
+            {
+                id: 2,
+                name: '松树 (中景)',
+                z: 150,
+                draw: function(ctx) {
+                    // 树干 (棕)
+                    drawPolygonParts(ctx, '#8D6E63', 'rgba(0,0,0,0)', 0, [
+                        [[235, 380], [255, 380], [255, 350], [235, 350]] // 矩形
+                    ]);
+                    // 树冠 (多层绿)
+                    drawPolygonParts(ctx, '#388E3C', 'white', 1, [
+                        [[200, 350], [245, 270], [290, 350]] // 底层
+                    ]);
+                    drawPolygonParts(ctx, '#43A047', 'white', 1, [
+                        [[210, 280], [245, 210], [280, 280]] // 中层
+                    ]);
+                    drawPolygonParts(ctx, '#4CAF50', 'white', 1, [
+                        [[220, 220], [245, 160], [270, 220]] // 顶层
+                    ]);
+                }
+            },
+            {
+                id: 3,
+                name: '人物 (前景)',
+                z: 50,
+                draw: function(ctx) {
+                    // 头 (米色，用多边形近似圆)
+                    drawPolygonParts(ctx, '#FFCCBC', 'white', 1, [
+                        [[260, 268], [270, 268], [277, 275], [277, 285], [270, 292], [260, 292], [253, 285], [253, 275]]
+                    ]);
+                    // 身体 (红)
+                    drawPolygonParts(ctx, '#D32F2F', 'white', 1, [
+                        [[250, 295], [280, 295], [280, 340], [250, 340]] // 矩形
+                    ]);
+                    // 腿 (蓝)
+                    drawPolygonParts(ctx, '#1976D2', 'white', 1, [
+                        [[250, 340], [260, 340], [260, 370], [250, 370]], // 左腿
+                        [[270, 340], [280, 340], [280, 370], [270, 370]]  // 右腿
+                    ]);
+                }
+            }
+        ];
+
+        let currentStep = -1; // -1: 初始, 0: 已排序, 1+: 开始绘制
+        let sortedObjects = [];
+
+        function init() {
+            // 初始状态：物体是乱序的
+            sortedObjects = [...sceneObjects].sort(() => Math.random() - 0.5);
+            renderList();
+            drawGrid();
+            statusLabel.innerText = "第一步：对物体按深度(Z)进行排序";
+        }
+
+        function renderList() {
+            polygonListEl.innerHTML = '';
+            sortedObjects.forEach((p, index) => {
+                const li = document.createElement('li');
+                li.className = 'step-item';
+                if (currentStep > 0 && index < currentStep) li.classList.add('completed');
+                if (currentStep > 0 && index === currentStep - 1) li.classList.add('active');
+                
+                li.innerHTML = `
+                    <span>${p.name}</span>
+                    <span class="z-index-tag">Z-Depth: ${p.z}</span>
+                `;
+                polygonListEl.appendChild(li);
+            });
+        }
+
+        function drawGrid() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#eee';
+            for(let i=0; i<canvas.width; i+=50) {
+                ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(canvas.width,i); ctx.stroke();
+            }
+        }
+
+        function drawPolygonParts(ctx, fillColor, strokeColor, lineWidth, parts) {
+            ctx.fillStyle = fillColor;
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = lineWidth;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = 'rgba(0,0,0,0.1)';
+
+            parts.forEach(points => {
+                ctx.beginPath();
+                ctx.moveTo(points[0][0], points[0][1]);
+                points.forEach(pt => ctx.lineTo(pt[0], pt[1]));
+                ctx.closePath();
+                ctx.fill();
+                if (lineWidth > 0) ctx.stroke();
+            });
+            ctx.shadowBlur = 0; // 重置阴影
+        }
+
+        function drawObject(obj) {
+            obj.draw(ctx);
+        }
+
+        function nextStep() {
+            if (currentStep === -1) {
+                // 执行排序
+                sortedObjects.sort((a, b) => b.z - a.z); // Z由大到小排序
+                currentStep = 0;
+                statusLabel.innerText = "排序完成！准备从最远的物体开始绘制...";
+            } else if (currentStep < sortedObjects.length) {
+                // 绘制当前物体
+                const objToPaint = sortedObjects[currentStep];
+                drawObject(objToPaint);
+                currentStep++;
+                statusLabel.innerText = `正在绘制: ${objToPaint.name} (Z:${objToPaint.z})`;
+                
+                if (currentStep === sortedObjects.length) {
+                    nextBtn.disabled = true;
+                    statusLabel.innerText = "渲染完成：近处物体已正确覆盖远处物体！";
+                }
+            }
+            renderList();
+        }
+
+        function resetDemo() {
+            currentStep = -1;
+            nextBtn.disabled = false;
+            init();
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
